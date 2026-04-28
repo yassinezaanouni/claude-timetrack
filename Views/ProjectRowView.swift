@@ -46,6 +46,7 @@ struct ProjectRowView: View {
                         active: activeSource == .claude,
                         available: claudeAvailable,
                         seconds: project.seconds(for: state.selectedRange, source: .claude),
+                        size: .row,
                         onTap: { switchSource(to: .claude) }
                     )
 
@@ -58,6 +59,7 @@ struct ProjectRowView: View {
                         active: activeSource == .git,
                         available: gitAvailable,
                         seconds: project.seconds(for: state.selectedRange, source: .git),
+                        size: .row,
                         onTap: { switchSource(to: .git) }
                     )
                 }
@@ -138,54 +140,6 @@ struct ProjectRowView: View {
         withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) {
             state.trackingSource = source
         }
-    }
-}
-
-// MARK: - Time chip
-
-private struct TimeChip: View {
-    let source: TrackingSource
-    let active: Bool
-    let available: Bool
-    let seconds: TimeInterval
-    let onTap: () -> Void
-
-    @State private var hovering = false
-
-    var body: some View {
-        Button(action: { if available && !active { onTap() } }) {
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Image(systemName: source.icon)
-                    .font(.system(size: active ? 10 : 9, weight: .semibold))
-                Text(available ? TimeFormat.short(seconds) : "—")
-                    .font(.system(size: active ? 13 : 11,
-                                  weight: active ? .semibold : .medium,
-                                  design: .rounded))
-                    .monospacedDigit()
-                if active, let dayHint = TimeFormat.daysHint(seconds), available {
-                    Text(dayHint)
-                        .font(.system(size: 9, weight: .medium))
-                        .monospacedDigit()
-                        .foregroundStyle(Theme.mutedForeground)
-                }
-            }
-            .foregroundStyle(foregroundColor)
-            .contentShape(Rectangle())
-            .padding(.vertical, 1)
-        }
-        .buttonStyle(.plain)
-        .disabled(!available || active)
-        .onHover { hovering = $0 && available && !active }
-        .help(active
-              ? "Showing \(source.label) time"
-              : (available ? "Switch to \(source.label) time" : "No \(source.label) data for this project"))
-    }
-
-    private var foregroundColor: Color {
-        if active { return Theme.foreground }
-        if !available { return Theme.mutedForeground.opacity(0.45) }
-        if hovering { return Theme.foreground }
-        return Theme.mutedForeground
     }
 }
 

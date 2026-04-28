@@ -12,6 +12,11 @@ struct ProjectDetailView: View {
 
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 14) {
+                    HStack {
+                        SourcePicker()
+                        Spacer()
+                    }
+
                     StatsRow(project: project)
 
                     Sparkline(project: project)
@@ -91,27 +96,106 @@ private struct StatsRow: View {
     let project: ProjectUsage
 
     var body: some View {
-        let today = project.seconds(for: .today, source: state.trackingSource)
-        let week  = project.seconds(for: .week,  source: state.trackingSource)
-        let total = project.seconds(for: .all,   source: state.trackingSource)
-        let last  = project.lastActive(source: state.trackingSource)
+        let claudeAvailable = project.sessionCount > 0
+        let gitAvailable = project.commitCount > 0
+        let last = project.lastActive(source: state.trackingSource)
 
-        HStack(spacing: 8) {
-            StatBox(label: "Today",    value: TimeFormat.short(today), hint: TimeFormat.daysHint(today))
-            StatBox(label: "Week",     value: TimeFormat.short(week),  hint: TimeFormat.daysHint(week))
-            StatBox(label: "All time", value: TimeFormat.short(total), hint: TimeFormat.daysHint(total))
+        VStack(spacing: 8) {
+            HStack(spacing: 8) {
+                DualTimeBox(
+                    label: "Today",
+                    project: project,
+                    range: .today,
+                    activeSource: state.trackingSource,
+                    claudeAvailable: claudeAvailable,
+                    gitAvailable: gitAvailable
+                )
+                DualTimeBox(
+                    label: "Week",
+                    project: project,
+                    range: .week,
+                    activeSource: state.trackingSource,
+                    claudeAvailable: claudeAvailable,
+                    gitAvailable: gitAvailable
+                )
+                DualTimeBox(
+                    label: "All time",
+                    project: project,
+                    range: .all,
+                    activeSource: state.trackingSource,
+                    claudeAvailable: claudeAvailable,
+                    gitAvailable: gitAvailable
+                )
+            }
+
+            if state.trackingSource == .claude {
+                HStack(spacing: 8) {
+                    StatBox(label: "Sessions", value: "\(project.sessionCount)")
+                    StatBox(label: "Messages", value: "\(project.messageCount)")
+                    StatBox(label: "Last",     value: last.map { TimeFormat.relative(from: $0) } ?? "—")
+                }
+            } else {
+                HStack(spacing: 8) {
+                    StatBox(label: "Commits", value: "\(project.commitCount)")
+                    StatBox(label: "Last",    value: last.map { TimeFormat.relative(from: $0) } ?? "—")
+                    Color.clear.frame(maxWidth: .infinity).frame(height: 0)
+                }
+            }
         }
-        if state.trackingSource == .claude {
-            HStack(spacing: 8) {
-                StatBox(label: "Sessions", value: "\(project.sessionCount)")
-                StatBox(label: "Messages", value: "\(project.messageCount)")
-                StatBox(label: "Last",     value: last.map { TimeFormat.relative(from: $0) } ?? "—")
-            }
-        } else {
-            HStack(spacing: 8) {
-                StatBox(label: "Commits", value: "\(project.commitCount)")
-                StatBox(label: "Last",    value: last.map { TimeFormat.relative(from: $0) } ?? "—")
-            }
+    }
+}
+
+private struct DualTimeBox: View {
+    @Environment(AppState.self) private var state
+    let label: String
+    let project: ProjectUsage
+    let range: TimeRange
+    let activeSource: TrackingSource
+    let claudeAvailable: Bool
+    let gitAvailable: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(label.uppercased())
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(Theme.mutedForeground)
+                .tracking(0.4)
+
+            TimeChip(
+                source: .claude,
+                active: activeSource == .claude,
+                available: claudeAvailable,
+                seconds: project.seconds(for: range, source: .claude),
+                size: .stat,
+                onTap: { switchSource(to: .claude) }
+            )
+            TimeChip(
+                source: .git,
+                active: activeSource == .git,
+                available: gitAvailable,
+                seconds: project.seconds(for: range, source: .git),
+                size: .stat,
+                onTap: { switchSource(to: .git) }
+            )
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.radiusMd, style: .continuous)
+                .fill(Theme.card)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.radiusMd, style: .continuous)
+                .stroke(Theme.border, lineWidth: 0.5)
+        )
+        .animation(.spring(response: 0.28, dampingFraction: 0.85), value: activeSource)
+    }
+
+    private func switchSource(to source: TrackingSource) {
+        guard state.trackingSource != source else { return }
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) {
+            state.trackingSource = source
         }
     }
 }

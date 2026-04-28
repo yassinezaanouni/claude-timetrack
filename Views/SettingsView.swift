@@ -31,8 +31,8 @@ struct SettingsView: View {
 
                 Spacer()
 
-                // balance spacing
-                Color.clear.frame(width: 40)
+                // balance spacing so the title sits visually centered
+                Color.clear.frame(width: 40, height: 1)
             }
             .padding(.horizontal, 14)
             .padding(.top, 14)

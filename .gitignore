@@ -1,0 +1,11 @@
+.build/
+.swiftpm/
+*.xcodeproj/
+*.xcuserdata
+DerivedData/
+.DS_Store
+
+# Loose SwiftPM artifacts that occasionally land at the source root
+*.d
+*.o
+*.swiftdeps

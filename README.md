@@ -6,6 +6,12 @@ tracked automatically from Claude Code's session files in `~/.claude/projects/`.
 No instrumentation, no extension to install. If you use Claude Code, the data
 is already on disk.
 
+## Screenshots
+
+| Light Mode | Dark Mode |
+|---|---|
+| ![Light mode](screenshots/light-mode.png) | ![Dark mode](screenshots/dark-mode.png) |
+
 ## How it works
 
 Every Claude Code message is logged with a `timestamp` and a `cwd`. The app

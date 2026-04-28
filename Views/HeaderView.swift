@@ -25,10 +25,12 @@ struct HeaderView: View {
 
                 Spacer()
 
-                VStack(alignment: .trailing, spacing: 4) {
-                    TimeRangePicker()
-                    SourcePicker()
-                }
+                TimeRangePicker()
+            }
+
+            HStack(spacing: 8) {
+                SourcePicker()
+                Spacer()
             }
 
             TotalBar()
@@ -160,26 +162,22 @@ struct SourcePicker: View {
             ForEach(TrackingSource.allCases) { source in
                 let isActive = state.trackingSource == source
                 Button {
-                    withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+                    withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) {
                         state.trackingSource = source
                     }
                 } label: {
-                    HStack(spacing: 4) {
+                    HStack(spacing: 5) {
                         Image(systemName: source.icon)
-                            .font(.system(size: 9, weight: .semibold))
+                            .font(.system(size: 10, weight: .semibold))
                         Text(source.label)
-                            .font(.system(size: 10, weight: .medium))
+                            .font(.system(size: 11, weight: .medium))
                     }
-                    .foregroundStyle(isActive ? Theme.foreground : Theme.mutedForeground)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3)
+                    .foregroundStyle(isActive ? Theme.primaryForeground : Theme.mutedForeground)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 4)
                     .background(
-                        RoundedRectangle(cornerRadius: 4, style: .continuous)
-                            .fill(isActive ? Theme.card : Color.clear)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                    .stroke(isActive ? Theme.border : .clear, lineWidth: 0.5)
-                            )
+                        RoundedRectangle(cornerRadius: 5, style: .continuous)
+                            .fill(isActive ? Theme.primary : Color.clear)
                     )
                 }
                 .plainButton()
@@ -187,7 +185,7 @@ struct SourcePicker: View {
         }
         .padding(2)
         .background(Theme.muted)
-        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
     }
 }
 

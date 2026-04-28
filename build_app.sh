@@ -26,6 +26,12 @@ mkdir -p "$APP_DIR/Contents/MacOS"
 mkdir -p "$APP_DIR/Contents/Resources"
 cp "$BIN_PATH" "$APP_DIR/Contents/MacOS/$NAME"
 
+# Copy SwiftPM-generated resource bundle (created when the target declares resources).
+RES_BUNDLE="$(dirname "$BIN_PATH")/${NAME}_${NAME}.bundle"
+if [[ -d "$RES_BUNDLE" ]]; then
+    cp -R "$RES_BUNDLE" "$APP_DIR/Contents/Resources/"
+fi
+
 echo "[3/4] Writing Info.plist..."
 cat > "$APP_DIR/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

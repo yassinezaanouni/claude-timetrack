@@ -21,8 +21,7 @@ struct TimeChip: View {
     var body: some View {
         Button(action: { if available && !active { onTap() } }) {
             HStack(alignment: .firstTextBaseline, spacing: spacing) {
-                Image(systemName: source.icon)
-                    .font(.system(size: iconSize, weight: .semibold))
+                SourceIcon(source: source, size: iconSize)
                 Text(available ? TimeFormat.short(seconds) : "—")
                     .font(.system(size: valueSize,
                                   weight: active ? .semibold : .medium,

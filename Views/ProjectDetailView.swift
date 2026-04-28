@@ -467,8 +467,7 @@ private struct GitInfoCard: View {
             if let stats, stats.commitCount > 0 {
                 if let last = stats.lastCommit {
                     HStack(spacing: 6) {
-                        Image(systemName: "arrow.triangle.branch")
-                            .font(.system(size: 10))
+                        SourceIcon(source: .git, size: 10)
                             .foregroundStyle(Theme.mutedForeground)
                         Text("Last commit \(TimeFormat.relative(from: last))")
                             .font(.system(size: 11))

@@ -10,7 +10,16 @@ let package = Package(
         .executableTarget(
             name: "ClaudeTimeTrack",
             path: ".",
-            exclude: ["Package.swift", "project.yml", "Info.plist", "build_app.sh"],
+            exclude: [
+                "Package.swift",
+                "project.yml",
+                "Info.plist",
+                "build_app.sh",
+                "README.md",
+                "LICENSE",
+                "screenshots"
+            ],
+            resources: [.process("Resources")],
             swiftSettings: [
                 .unsafeFlags(["-parse-as-library"])
             ]

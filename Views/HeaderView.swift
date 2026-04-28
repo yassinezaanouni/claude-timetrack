@@ -167,8 +167,7 @@ struct SourcePicker: View {
                     }
                 } label: {
                     HStack(spacing: 5) {
-                        Image(systemName: source.icon)
-                            .font(.system(size: 10, weight: .semibold))
+                        SourceIcon(source: source, size: 10)
                         Text(source.label)
                             .font(.system(size: 11, weight: .medium))
                     }

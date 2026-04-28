@@ -1,7 +1,32 @@
+import AppKit
 import Foundation
 import Observation
 import ServiceManagement
 import SwiftUI
+
+enum AppearanceMode: Int, CaseIterable, Identifiable {
+    case system = 0
+    case light = 1
+    case dark = 2
+
+    var id: Int { rawValue }
+
+    var label: String {
+        switch self {
+        case .system: return "System"
+        case .light:  return "Light"
+        case .dark:   return "Dark"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .system: return "circle.lefthalf.filled"
+        case .light:  return "sun.max"
+        case .dark:   return "moon"
+        }
+    }
+}
 
 @Observable
 final class AppState {
@@ -50,6 +75,15 @@ final class AppState {
         didSet { AppState.saveHidden(hiddenProjects) }
     }
 
+    var appearanceMode: AppearanceMode = AppearanceMode(
+        rawValue: UserDefaults.standard.integer(forKey: Keys.appearance)
+    ) ?? .system {
+        didSet {
+            UserDefaults.standard.set(appearanceMode.rawValue, forKey: Keys.appearance)
+            applyAppearance()
+        }
+    }
+
     var launchAtLogin: Bool = SMAppService.mainApp.status == .enabled {
         didSet {
             do {
@@ -71,8 +105,20 @@ final class AppState {
 
     init() {
         enableLaunchAtLoginOnFirstRun()
+        applyAppearance()
         refresh()
         restartTimer()
+    }
+
+    func applyAppearance() {
+        DispatchQueue.main.async { [appearanceMode] in
+            guard let app = NSApp else { return }
+            switch appearanceMode {
+            case .light:  app.appearance = NSAppearance(named: .aqua)
+            case .dark:   app.appearance = NSAppearance(named: .darkAqua)
+            case .system: app.appearance = nil
+            }
+        }
     }
 
     // MARK: - Actions
@@ -168,6 +214,7 @@ final class AppState {
         static let maxShown = "claudetimetrack.maxProjectsShown"
         static let hideInactive = "claudetimetrack.hideInactive"
         static let hidden = "claudetimetrack.hiddenProjects"
+        static let appearance = "claudetimetrack.appearanceMode"
     }
 }
 

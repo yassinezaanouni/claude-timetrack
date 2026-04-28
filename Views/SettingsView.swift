@@ -42,6 +42,10 @@ struct SettingsView: View {
 
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 14) {
+                    SettingsCard(title: "Appearance") {
+                        AppearancePicker(selection: $state.appearanceMode)
+                    }
+
                     SettingsCard(title: "General") {
                         ToggleRow(
                             title: "Launch at login",
@@ -178,6 +182,47 @@ private struct ToggleRow: View {
                 .toggleStyle(.switch)
                 .tint(Theme.primary)
         }
+    }
+}
+
+private struct AppearancePicker: View {
+    @Binding var selection: AppearanceMode
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(AppearanceMode.allCases) { mode in
+                let isActive = selection == mode
+                Button {
+                    selection = mode
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: mode.icon)
+                            .font(.system(size: 11, weight: .medium))
+                        Text(mode.label)
+                            .font(.system(size: 12, weight: .semibold))
+                    }
+                    .foregroundStyle(isActive ? Theme.foreground : Theme.mutedForeground)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 7)
+                    .contentShape(Rectangle())
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(isActive ? Theme.card : .clear)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .stroke(isActive ? Theme.border : .clear, lineWidth: 0.5)
+                            )
+                    )
+                    .animation(.easeOut(duration: 0.15), value: isActive)
+                }
+                .plainButton()
+            }
+        }
+        .padding(2)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Theme.muted)
+        )
     }
 }
 

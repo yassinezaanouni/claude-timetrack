@@ -41,9 +41,8 @@ struct SourceIcon: View {
 
     var body: some View {
         Group {
-            if let asset = source.customAsset {
-                Image(asset, bundle: .module)
-                    .renderingMode(.template)
+            if let asset = source.customAsset, let nsImage = Self.loadTemplate(named: asset) {
+                Image(nsImage: nsImage)
                     .resizable()
                     .interpolation(.high)
                     .aspectRatio(contentMode: .fit)
@@ -54,4 +53,19 @@ struct SourceIcon: View {
             }
         }
     }
+
+    /// Loads a PNG from the SwiftPM resource bundle and marks it as a template
+    /// image so AppKit tints it with the current foreground color. Cached on
+    /// first hit since NSImage objects are immutable here.
+    private static func loadTemplate(named name: String) -> NSImage? {
+        if let cached = cache[name] { return cached }
+        guard let url = Bundle.module.url(forResource: name, withExtension: "png"),
+              let img = NSImage(contentsOf: url)
+        else { return nil }
+        img.isTemplate = true
+        cache[name] = img
+        return img
+    }
+
+    private static var cache: [String: NSImage] = [:]
 }

@@ -84,6 +84,33 @@ final class AppState {
         }
     }
 
+    var trackingSource: TrackingSource = TrackingSource(
+        rawValue: UserDefaults.standard.string(forKey: Keys.source) ?? ""
+    ) ?? .claude {
+        didSet { UserDefaults.standard.set(trackingSource.rawValue, forKey: Keys.source) }
+    }
+
+    var gitMaxGapMinutes: Int = UserDefaults.standard.integer(forKey: Keys.gitGap, default: 120) {
+        didSet {
+            UserDefaults.standard.set(gitMaxGapMinutes, forKey: Keys.gitGap)
+            refresh()
+        }
+    }
+
+    var gitFirstCommitMinutes: Int = UserDefaults.standard.integer(forKey: Keys.gitFirst, default: 120) {
+        didSet {
+            UserDefaults.standard.set(gitFirstCommitMinutes, forKey: Keys.gitFirst)
+            refresh()
+        }
+    }
+
+    var gitFilterByEmail: Bool = UserDefaults.standard.bool(forKey: Keys.gitFilter, default: true) {
+        didSet {
+            UserDefaults.standard.set(gitFilterByEmail, forKey: Keys.gitFilter)
+            refresh()
+        }
+    }
+
     var launchAtLogin: Bool = SMAppService.mainApp.status == .enabled {
         didSet {
             do {
@@ -101,6 +128,7 @@ final class AppState {
     // MARK: - Private
 
     private let tracker = SessionTracker()
+    private let gitAnalyzer = GitHistoryAnalyzer()
     private var timer: Timer?
 
     init() {
@@ -126,10 +154,21 @@ final class AppState {
     func refresh() {
         isRefreshing = true
         let gap = TimeInterval(max(1, idleGapMinutes) * 60)
+        let gitConfig = GitHistoryAnalyzer.Config(
+            maxGapMinutes: gitMaxGapMinutes,
+            firstCommitMinutes: gitFirstCommitMinutes,
+            filterByEmail: gitFilterByEmail
+        )
         // SessionTracker is light for ~50 files but we still hop off main to keep UI buttery.
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
-            let result = self.tracker.compute(idleGapSeconds: gap)
+            var result = self.tracker.compute(idleGapSeconds: gap)
+            // Enrich each project with its git-hours estimate.
+            for i in 0..<result.count {
+                result[i].gitStats = self.gitAnalyzer.analyze(
+                    root: result[i].root, config: gitConfig
+                )
+            }
             DispatchQueue.main.async {
                 self.projects = result
                 self.lastRefreshedAt = Date()
@@ -159,13 +198,15 @@ final class AppState {
             out = out.filter { $0.name.lowercased().contains(q) || $0.root.lowercased().contains(q) }
         }
         out.sort { lhs, rhs in
-            let l = lhs.seconds(for: selectedRange)
-            let r = rhs.seconds(for: selectedRange)
+            let l = lhs.seconds(for: selectedRange, source: trackingSource)
+            let r = rhs.seconds(for: selectedRange, source: trackingSource)
             if l != r { return l > r }
-            return (lhs.lastActive ?? .distantPast) > (rhs.lastActive ?? .distantPast)
+            let la = lhs.lastActive(source: trackingSource) ?? .distantPast
+            let ra = rhs.lastActive(source: trackingSource) ?? .distantPast
+            return la > ra
         }
         if hideInactive && selectedRange != .all {
-            out = out.filter { $0.seconds(for: selectedRange) > 0 }
+            out = out.filter { $0.seconds(for: selectedRange, source: trackingSource) > 0 }
         }
         return out
     }
@@ -173,7 +214,7 @@ final class AppState {
     func totalSeconds(for range: TimeRange) -> TimeInterval {
         projects
             .filter { !hiddenProjects.contains($0.root) }
-            .reduce(0) { $0 + $1.seconds(for: range) }
+            .reduce(0) { $0 + $1.seconds(for: range, source: trackingSource) }
     }
 
     // MARK: - Timer
@@ -215,6 +256,10 @@ final class AppState {
         static let hideInactive = "claudetimetrack.hideInactive"
         static let hidden = "claudetimetrack.hiddenProjects"
         static let appearance = "claudetimetrack.appearanceMode"
+        static let source = "claudetimetrack.trackingSource"
+        static let gitGap = "claudetimetrack.gitMaxGapMinutes"
+        static let gitFirst = "claudetimetrack.gitFirstCommitMinutes"
+        static let gitFilter = "claudetimetrack.gitFilterByEmail"
     }
 }
 

@@ -16,9 +16,18 @@ struct ProjectDetailView: View {
 
                     Sparkline(project: project)
 
-                    SessionList(project: project)
+                    if state.trackingSource == .claude {
+                        SessionList(project: project)
+                    } else {
+                        GitInfoCard(project: project)
+                    }
 
-                    CalculationNote(idleGapMinutes: state.idleGapMinutes)
+                    CalculationNote(
+                        source: state.trackingSource,
+                        idleGapMinutes: state.idleGapMinutes,
+                        gitMaxGapMinutes: state.gitMaxGapMinutes,
+                        gitFirstCommitMinutes: state.gitFirstCommitMinutes
+                    )
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
@@ -78,30 +87,31 @@ struct ProjectDetailView: View {
 // MARK: - Stats row
 
 private struct StatsRow: View {
+    @Environment(AppState.self) private var state
     let project: ProjectUsage
 
     var body: some View {
+        let today = project.seconds(for: .today, source: state.trackingSource)
+        let week  = project.seconds(for: .week,  source: state.trackingSource)
+        let total = project.seconds(for: .all,   source: state.trackingSource)
+        let last  = project.lastActive(source: state.trackingSource)
+
         HStack(spacing: 8) {
-            StatBox(
-                label: "Today",
-                value: TimeFormat.short(project.today),
-                hint: TimeFormat.daysHint(project.today)
-            )
-            StatBox(
-                label: "Week",
-                value: TimeFormat.short(project.week),
-                hint: TimeFormat.daysHint(project.week)
-            )
-            StatBox(
-                label: "All time",
-                value: TimeFormat.short(project.total),
-                hint: TimeFormat.daysHint(project.total)
-            )
+            StatBox(label: "Today",    value: TimeFormat.short(today), hint: TimeFormat.daysHint(today))
+            StatBox(label: "Week",     value: TimeFormat.short(week),  hint: TimeFormat.daysHint(week))
+            StatBox(label: "All time", value: TimeFormat.short(total), hint: TimeFormat.daysHint(total))
         }
-        HStack(spacing: 8) {
-            StatBox(label: "Sessions", value: "\(project.sessionCount)")
-            StatBox(label: "Messages", value: "\(project.messageCount)")
-            StatBox(label: "Last", value: project.lastActive.map { TimeFormat.relative(from: $0) } ?? "—")
+        if state.trackingSource == .claude {
+            HStack(spacing: 8) {
+                StatBox(label: "Sessions", value: "\(project.sessionCount)")
+                StatBox(label: "Messages", value: "\(project.messageCount)")
+                StatBox(label: "Last",     value: last.map { TimeFormat.relative(from: $0) } ?? "—")
+            }
+        } else {
+            HStack(spacing: 8) {
+                StatBox(label: "Commits", value: "\(project.commitCount)")
+                StatBox(label: "Last",    value: last.map { TimeFormat.relative(from: $0) } ?? "—")
+            }
         }
     }
 }
@@ -147,6 +157,7 @@ private struct StatBox: View {
 // MARK: - Sparkline (last 14 days)
 
 private struct Sparkline: View {
+    @Environment(AppState.self) private var state
     let project: ProjectUsage
 
     var body: some View {
@@ -217,9 +228,11 @@ private struct Sparkline: View {
         let fmtFull = DateFormatter()
         fmtFull.dateFormat = "EEE, MMM d"
 
+        let dailies = project.dailyTotals(source: state.trackingSource)
+
         for i in (0..<14).reversed() {
             guard let day = cal.date(byAdding: .day, value: -i, to: today) else { continue }
-            let seconds = project.dailyTotals[day] ?? 0
+            let seconds = dailies[day] ?? 0
             let weekday = cal.component(.weekday, from: day)
             // 1=Sun
             let weekdayLabel: String
@@ -345,16 +358,73 @@ private struct SessionRow: View {
     }
 }
 
+// MARK: - Git info card (visible in git source mode)
+
+private struct GitInfoCard: View {
+    let project: ProjectUsage
+
+    var body: some View {
+        let stats = project.gitStats
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("GIT HISTORY")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Theme.mutedForeground)
+                    .tracking(0.5)
+                Spacer()
+                if let stats {
+                    Text("\(stats.commitCount) commit\(stats.commitCount == 1 ? "" : "s")")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(Theme.mutedForeground)
+                        .monospacedDigit()
+                }
+            }
+
+            if let stats, stats.commitCount > 0 {
+                if let last = stats.lastCommit {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.triangle.branch")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Theme.mutedForeground)
+                        Text("Last commit \(TimeFormat.relative(from: last))")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Theme.foreground)
+                    }
+                }
+            } else {
+                Text(stats == nil
+                    ? "Not a git repository (or git unavailable)."
+                    : "No commits matched the current filter.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.mutedForeground)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.radiusMd, style: .continuous)
+                .fill(Theme.card)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.radiusMd, style: .continuous)
+                .stroke(Theme.border, lineWidth: 0.5)
+        )
+    }
+}
+
 // MARK: - Calculation note
 
 private struct CalculationNote: View {
+    let source: TrackingSource
     let idleGapMinutes: Int
+    let gitMaxGapMinutes: Int
+    let gitFirstCommitMinutes: Int
 
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: "info.circle")
                 .font(.system(size: 10))
-            Text("Each sitting is a run of messages with no gap longer than \(idleGapMinutes) min. Active time is the wall-clock span of each sitting. Longer gaps split a sitting and are not counted.")
+            Text(text)
                 .font(.system(size: 10))
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
@@ -366,5 +436,14 @@ private struct CalculationNote: View {
             RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous)
                 .fill(Theme.muted.opacity(0.5))
         )
+    }
+
+    private var text: String {
+        switch source {
+        case .claude:
+            return "Each sitting is a run of messages with no gap longer than \(idleGapMinutes) min. Active time is the wall-clock span of each sitting. Longer gaps split a sitting and are not counted."
+        case .git:
+            return "Time is estimated from commit timestamps using the git-hours heuristic: gaps shorter than \(gitMaxGapMinutes) min are added to the total; longer gaps start a new session and add \(gitFirstCommitMinutes) min for the first commit."
+        }
     }
 }

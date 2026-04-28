@@ -25,7 +25,10 @@ struct HeaderView: View {
 
                 Spacer()
 
-                TimeRangePicker()
+                VStack(alignment: .trailing, spacing: 4) {
+                    TimeRangePicker()
+                    SourcePicker()
+                }
             }
 
             TotalBar()
@@ -36,9 +39,10 @@ struct HeaderView: View {
     }
 
     private var lastRefreshedSubtitle: String {
-        if state.isRefreshing { return "updating…" }
-        guard let d = state.lastRefreshedAt else { return "not yet refreshed" }
-        return "updated \(TimeFormat.relative(from: d))"
+        let prefix = state.trackingSource.label
+        if state.isRefreshing { return "\(prefix) · updating…" }
+        guard let d = state.lastRefreshedAt else { return "\(prefix) · not yet refreshed" }
+        return "\(prefix) · updated \(TimeFormat.relative(from: d))"
     }
 }
 
@@ -99,7 +103,7 @@ private struct StackedBar: View {
             } else {
                 HStack(spacing: 1.5) {
                     ForEach(projects) { p in
-                        let seconds = p.seconds(for: state.selectedRange)
+                        let seconds = p.seconds(for: state.selectedRange, source: state.trackingSource)
                         if seconds > 0 {
                             Color.paletteColor(for: p.name)
                                 .frame(width: max(3, geo.size.width * CGFloat(seconds / total)))
@@ -143,6 +147,47 @@ struct TimeRangePicker: View {
         .padding(2)
         .background(Theme.muted)
         .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+    }
+}
+
+// MARK: - Source picker (Claude vs Git)
+
+struct SourcePicker: View {
+    @Environment(AppState.self) private var state
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(TrackingSource.allCases) { source in
+                let isActive = state.trackingSource == source
+                Button {
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+                        state.trackingSource = source
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: source.icon)
+                            .font(.system(size: 9, weight: .semibold))
+                        Text(source.label)
+                            .font(.system(size: 10, weight: .medium))
+                    }
+                    .foregroundStyle(isActive ? Theme.foreground : Theme.mutedForeground)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(
+                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            .fill(isActive ? Theme.card : Color.clear)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                    .stroke(isActive ? Theme.border : .clear, lineWidth: 0.5)
+                            )
+                    )
+                }
+                .plainButton()
+            }
+        }
+        .padding(2)
+        .background(Theme.muted)
+        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
     }
 }
 

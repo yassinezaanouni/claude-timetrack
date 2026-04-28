@@ -60,7 +60,7 @@ struct SettingsView: View {
                         )
                     }
 
-                    SettingsCard(title: "Tracking") {
+                    SettingsCard(title: "Claude tracking") {
                         StepperRow(
                             title: "Idle gap",
                             subtitle: "Gaps longer than this split a sitting and aren't counted",
@@ -84,6 +84,32 @@ struct SettingsView: View {
                             value: $state.maxProjectsShown,
                             range: 3...40,
                             suffix: "rows"
+                        )
+                    }
+
+                    SettingsCard(title: "Git tracking") {
+                        StepperRow(
+                            title: "Max commit gap",
+                            subtitle: "Gaps shorter than this count toward time spent",
+                            value: $state.gitMaxGapMinutes,
+                            range: 15...480,
+                            step: 15,
+                            suffix: "min"
+                        )
+                        Divider().opacity(0.4)
+                        StepperRow(
+                            title: "First-commit add",
+                            subtitle: "Time added for each session's opening commit",
+                            value: $state.gitFirstCommitMinutes,
+                            range: 15...480,
+                            step: 15,
+                            suffix: "min"
+                        )
+                        Divider().opacity(0.4)
+                        ToggleRow(
+                            title: "Only my commits",
+                            subtitle: "Filter by your global git user.email",
+                            isOn: $state.gitFilterByEmail
                         )
                     }
 

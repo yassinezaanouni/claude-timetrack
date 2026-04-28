@@ -8,9 +8,13 @@ struct ProjectRowView: View {
     @State private var isHovering = false
 
     var body: some View {
-        let seconds = project.seconds(for: state.selectedRange)
+        let seconds = project.seconds(for: state.selectedRange, source: state.trackingSource)
         let proportion = total > 0 ? seconds / total : 0
         let accent = Color.paletteColor(for: project.name)
+        let lastActive = project.lastActive(source: state.trackingSource)
+        let countLabel = state.trackingSource == .claude
+            ? "\(project.sessionCount) session\(project.sessionCount == 1 ? "" : "s")"
+            : "\(project.commitCount) commit\(project.commitCount == 1 ? "" : "s")"
 
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 10) {
@@ -24,7 +28,7 @@ struct ProjectRowView: View {
                         .foregroundStyle(Theme.foreground)
                         .lineLimit(1)
                         .truncationMode(.middle)
-                    if let last = project.lastActive {
+                    if let last = lastActive {
                         Text(TimeFormat.relative(from: last))
                             .font(.system(size: 10))
                             .foregroundStyle(Theme.mutedForeground)
@@ -63,7 +67,7 @@ struct ProjectRowView: View {
             // Hover actions
             if isHovering {
                 HStack(spacing: 6) {
-                    Text("\(project.sessionCount) session\(project.sessionCount == 1 ? "" : "s")")
+                    Text(countLabel)
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(Theme.mutedForeground)
                     Text("·")

@@ -2,16 +2,18 @@
 
 A macOS menu bar app that shows how much time you've spent in each project — tracked from Claude Code's session files and your git history. No instrumentation, no extension. If you use Claude Code or git, the data is already on disk.
 
-| Light | Dark |
+| Overview | Project detail |
 |---|---|
-| ![Light mode](screenshots/light-mode.png) | ![Dark mode](screenshots/dark-mode.png) |
+| ![Main view](screenshots/main-view.png) | ![Project detail](screenshots/project-detail.png) |
 
 ## Features
 
-- **Two data sources, side by side** — every project row shows both Claude session time and `git-hours` commit time. Tap either to make it the active view.
-- **Three ranges** — Today / Week / All time, with live totals in the menu bar.
-- **Stacked breakdown bar** — see at a glance which projects ate your day.
-- **Project detail view** — Today / Week / All-time stats, 14-day sparkline, last 20 sittings (Claude) or commit summary (Git).
+- **Two data sources, side by side** — every row shows both Claude session time and `git-hours` commit time. Tap either to flip the active view.
+- **Three ranges** — Today / Week / All time, with the live total in the menu bar.
+- **Activity heatmap** — GitHub-style 26-week calendar on the main popover (aggregated) and per project. Click any day to drill in: totals, sorting, and the session list scope to that day.
+- **Stacked breakdown bar** of project shares.
+- **Project detail view** — Today / Week / All-time stats for both sources, sessions / messages / last-active, activity heatmap, and the last 20 sittings (Claude) or commit summary (Git).
+- **Missing-data indicator** — if Claude Code has pruned old session JSONLs but the index still references them, the project shows a ⚠️ and a banner explaining what's gone.
 - **Appearance** — System / Light / Dark.
 - **Hands-off** — auto-refresh every minute, launch-at-login, hide projects you don't care about.
 

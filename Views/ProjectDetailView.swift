@@ -17,9 +17,19 @@ struct ProjectDetailView: View {
                         Spacer()
                     }
 
+                    if let missing = project.missingClaudeData {
+                        MissingDataBanner(missing: missing)
+                    }
+
                     StatsRow(project: project)
 
-                    Sparkline(project: project)
+                    @Bindable var state = state
+                    ActivityCalendar(
+                        dailyTotals: project.dailyTotals(source: state.trackingSource),
+                        selectedDate: $state.selectedDate,
+                        accent: Color.paletteColor(for: project.name),
+                        title: "ACTIVITY"
+                    )
 
                     if state.trackingSource == .claude {
                         SessionList(project: project)
@@ -96,11 +106,19 @@ private struct StatsRow: View {
     let project: ProjectUsage
 
     var body: some View {
+        if let day = state.selectedDate {
+            SelectedDayHero(project: project, day: day)
+        } else {
+            defaultStats
+        }
+    }
+
+    private var defaultStats: some View {
         let claudeAvailable = project.sessionCount > 0
         let gitAvailable = project.commitCount > 0
         let last = project.lastActive(source: state.trackingSource)
 
-        VStack(spacing: 8) {
+        return VStack(spacing: 8) {
             HStack(spacing: 8) {
                 DualTimeBox(
                     label: "Today",
@@ -143,6 +161,94 @@ private struct StatsRow: View {
             }
         }
     }
+}
+
+/// Replaces the 3-box Today/Week/All stat row when the user is drilling into
+/// a specific calendar day. Shows that day's per-source totals + a quick way
+/// to clear the selection.
+private struct SelectedDayHero: View {
+    @Environment(AppState.self) private var state
+    let project: ProjectUsage
+    let day: Date
+
+    var body: some View {
+        let claude = project.daySeconds(for: day, source: .claude)
+        let git = project.daySeconds(for: day, source: .git)
+        let active = state.trackingSource == .claude ? claude : git
+        let accent = Color.paletteColor(for: project.name)
+
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(Self.dayFormatter.string(from: day).uppercased())
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(Theme.mutedForeground)
+                        .tracking(0.5)
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(TimeFormat.short(active))
+                            .font(.system(size: 24, weight: .semibold, design: .rounded))
+                            .foregroundStyle(Theme.foreground)
+                            .monospacedDigit()
+                        Text(state.trackingSource.label.lowercased())
+                            .font(.system(size: 11))
+                            .foregroundStyle(Theme.mutedForeground)
+                    }
+                }
+                Spacer()
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) { state.selectedDate = nil }
+                } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 9, weight: .semibold))
+                        Text("Clear")
+                            .font(.system(size: 10, weight: .medium))
+                    }
+                    .foregroundStyle(Theme.mutedForeground)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 4)
+                    .background(
+                        RoundedRectangle(cornerRadius: 5)
+                            .fill(Theme.muted)
+                    )
+                }
+                .buttonStyle(.plain)
+                .help("Clear date filter")
+            }
+
+            HStack(spacing: 12) {
+                miniRow(source: .claude, seconds: claude)
+                Divider().frame(height: 18)
+                miniRow(source: .git, seconds: git)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.radiusMd, style: .continuous)
+                .fill(accent.opacity(0.12))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.radiusMd, style: .continuous)
+                .stroke(accent.opacity(0.35), lineWidth: 0.5)
+        )
+    }
+
+    private func miniRow(source: TrackingSource, seconds: TimeInterval) -> some View {
+        HStack(spacing: 5) {
+            SourceIcon(source: source, size: 10)
+            Text(seconds > 0 ? TimeFormat.short(seconds) : "—")
+                .font(.system(size: 12, weight: .medium, design: .rounded))
+                .monospacedDigit()
+        }
+        .foregroundStyle(state.trackingSource == source ? Theme.foreground : Theme.mutedForeground)
+    }
+
+    private static let dayFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "EEEE, MMM d"
+        return f
+    }()
 }
 
 private struct DualTimeBox: View {
@@ -238,142 +344,58 @@ private struct StatBox: View {
     }
 }
 
-// MARK: - Sparkline (last 14 days)
+// MARK: - Session list
 
-private struct Sparkline: View {
+private struct SessionList: View {
     @Environment(AppState.self) private var state
     let project: ProjectUsage
 
     var body: some View {
-        let days = buildDays()
-        let maxSeconds = max(days.map(\.seconds).max() ?? 0, 1)
+        let filtered = filteredSessions
+        let title = state.selectedDate != nil ? "SESSIONS ON THIS DAY" : "SESSIONS"
 
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("LAST 14 DAYS")
+                Text(title)
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(Theme.mutedForeground)
                     .tracking(0.5)
                 Spacer()
-                Text(TimeFormat.short(days.reduce(0) { $0 + $1.seconds }))
+                Text("\(filtered.count)")
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(Theme.mutedForeground)
                     .monospacedDigit()
             }
 
-            HStack(alignment: .bottom, spacing: 3) {
-                ForEach(days) { day in
-                    VStack(spacing: 4) {
-                        Spacer(minLength: 0)
-                        RoundedRectangle(cornerRadius: 2, style: .continuous)
-                            .fill(day.seconds > 0
-                                ? Color.paletteColor(for: project.name)
-                                : Theme.muted)
-                            .frame(height: barHeight(day.seconds, max: maxSeconds))
-                            .help(tooltip(for: day))
-                        Text(day.shortLabel)
-                            .font(.system(size: 8, weight: .medium))
-                            .foregroundStyle(Theme.mutedForeground)
-                    }
-                    .frame(maxWidth: .infinity)
-                }
-            }
-            .frame(height: 60)
-        }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: Theme.radiusMd, style: .continuous)
-                .fill(Theme.card)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: Theme.radiusMd, style: .continuous)
-                .stroke(Theme.border, lineWidth: 0.5)
-        )
-    }
-
-    private func barHeight(_ seconds: TimeInterval, max: TimeInterval) -> CGFloat {
-        guard max > 0 else { return 2 }
-        let ratio = CGFloat(seconds / max)
-        return Swift.max(2, ratio * 44)
-    }
-
-    private func tooltip(for day: DayBucket) -> String {
-        "\(day.fullLabel): \(TimeFormat.short(day.seconds))"
-    }
-
-    private func buildDays() -> [DayBucket] {
-        let cal = Calendar.current
-        let today = cal.startOfDay(for: Date())
-        var out: [DayBucket] = []
-        let fmtShort = DateFormatter()
-        fmtShort.dateFormat = "d"
-        let fmtWeekday = DateFormatter()
-        fmtWeekday.dateFormat = "EEE"
-        let fmtFull = DateFormatter()
-        fmtFull.dateFormat = "EEE, MMM d"
-
-        let dailies = project.dailyTotals(source: state.trackingSource)
-
-        for i in (0..<14).reversed() {
-            guard let day = cal.date(byAdding: .day, value: -i, to: today) else { continue }
-            let seconds = dailies[day] ?? 0
-            let weekday = cal.component(.weekday, from: day)
-            // 1=Sun
-            let weekdayLabel: String
-            if i == 0 {
-                weekdayLabel = "•"     // today
-            } else if weekday == 2 {
-                weekdayLabel = "M"
+            if filtered.isEmpty {
+                Text(state.selectedDate != nil
+                     ? "No Claude sessions on this day."
+                     : "No sessions yet.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.mutedForeground)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 12)
             } else {
-                weekdayLabel = fmtShort.string(from: day)
-            }
-            out.append(DayBucket(id: day, seconds: seconds,
-                                 shortLabel: weekdayLabel,
-                                 fullLabel: fmtFull.string(from: day)))
-        }
-        return out
-    }
-
-    private struct DayBucket: Identifiable {
-        let id: Date
-        let seconds: TimeInterval
-        let shortLabel: String
-        let fullLabel: String
-    }
-}
-
-// MARK: - Session list
-
-private struct SessionList: View {
-    let project: ProjectUsage
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("SESSIONS")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(Theme.mutedForeground)
-                    .tracking(0.5)
-                Spacer()
-                Text("\(project.sessions.count)")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(Theme.mutedForeground)
-                    .monospacedDigit()
-            }
-
-            VStack(spacing: 4) {
-                ForEach(project.sessions.prefix(20)) { session in
-                    SessionRow(session: session)
-                }
-                if project.sessions.count > 20 {
-                    Text("+ \(project.sessions.count - 20) older sessions")
-                        .font(.system(size: 10))
-                        .foregroundStyle(Theme.mutedForeground)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.top, 4)
+                VStack(spacing: 4) {
+                    ForEach(filtered.prefix(20)) { session in
+                        SessionRow(session: session)
+                    }
+                    if filtered.count > 20 {
+                        Text("+ \(filtered.count - 20) older sessions")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Theme.mutedForeground)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.top, 4)
+                    }
                 }
             }
         }
+    }
+
+    private var filteredSessions: [SessionSummary] {
+        guard let day = state.selectedDate else { return project.sessions }
+        let cal = Calendar.current
+        return project.sessions.filter { cal.isDate($0.start, inSameDayAs: day) }
     }
 }
 
@@ -528,5 +550,58 @@ private struct CalculationNote: View {
         case .git:
             return "Time is estimated from commit timestamps using the git-hours heuristic: gaps shorter than \(gitMaxGapMinutes) min are added to the total; longer gaps start a new session and add \(gitFirstCommitMinutes) min for the first commit."
         }
+    }
+}
+
+// MARK: - Missing-data banner
+
+/// Surfaced on projects whose `sessions-index.json` references session JSONLs
+/// that are no longer on disk — typically because Claude Code pruned them.
+/// The Claude time we show for these projects is incomplete.
+struct MissingDataBanner: View {
+    let missing: MissingClaudeData
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.orange)
+                .padding(.top, 1)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Claude data incomplete")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Theme.foreground)
+                Text(detail)
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.mutedForeground)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous)
+                .fill(Color.orange.opacity(0.10))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous)
+                .stroke(Color.orange.opacity(0.35), lineWidth: 0.5)
+        )
+    }
+
+    private var detail: String {
+        let sessions = "\(missing.sessionCount) session\(missing.sessionCount == 1 ? "" : "s")"
+        let msgs = missing.messageCount > 0 ? " (~\(missing.messageCount) messages)" : ""
+        let range: String = {
+            guard let first = missing.earliest, let last = missing.latest else { return "" }
+            let f = DateFormatter()
+            f.dateFormat = "MMM d, yyyy"
+            let a = f.string(from: first)
+            let b = f.string(from: last)
+            return a == b ? " from \(a)" : " from \(a) → \(b)"
+        }()
+        return "\(sessions)\(msgs) referenced in the Claude index but their JSONL files are missing on disk\(range). Claude time shown here is incomplete."
     }
 }

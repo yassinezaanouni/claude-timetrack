@@ -142,6 +142,31 @@ final class SessionTracker {
             )
         }
 
+        // Attach missing-data warnings, and synthesize stub projects for any
+        // project that has only missing sessions (no surviving JSONLs).
+        let missingMap = collectMissingData()
+        if !missingMap.isEmpty {
+            var byRoot = Dictionary(uniqueKeysWithValues: results.map { ($0.root, $0) })
+            for (root, data) in missingMap {
+                if var existing = byRoot[root] {
+                    existing.missingClaudeData = data
+                    byRoot[root] = existing
+                } else {
+                    let name = (root as NSString).lastPathComponent
+                    byRoot[root] = ProjectUsage(
+                        root: root,
+                        name: name.isEmpty ? root : name,
+                        today: 0, week: 0, total: 0,
+                        lastActive: data.latest,
+                        dailyTotals: [:],
+                        sessions: [],
+                        missingClaudeData: data
+                    )
+                }
+            }
+            results = Array(byRoot.values)
+        }
+
         return results
     }
 
@@ -191,6 +216,75 @@ final class SessionTracker {
         }
 
         return all
+    }
+
+    // MARK: - Missing-data scan
+
+    /// Decoded shape of `~/.claude/projects/<encoded-cwd>/sessions-index.json`.
+    /// Only the fields we actually use are listed.
+    private struct SessionsIndex: Decodable {
+        struct Entry: Decodable {
+            let fullPath: String
+            let projectPath: String?
+            let messageCount: Int?
+            let created: String?
+            let modified: String?
+        }
+        let entries: [Entry]
+    }
+
+    /// For every project folder, read `sessions-index.json` and identify
+    /// entries whose `.jsonl` no longer exists. Group counts/messages/dates by
+    /// the resolved git root so we can attach a single summary per project.
+    private func collectMissingData() -> [String: MissingClaudeData] {
+        guard let projectDirs = try? fm.contentsOfDirectory(
+            at: projectsURL, includingPropertiesForKeys: [.isDirectoryKey]
+        ) else { return [:] }
+
+        let isoFrac = ISO8601DateFormatter()
+        isoFrac.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let isoPlain = ISO8601DateFormatter()
+        isoPlain.formatOptions = [.withInternetDateTime]
+        func parseDate(_ s: String?) -> Date? {
+            guard let s, !s.isEmpty else { return nil }
+            return isoFrac.date(from: s) ?? isoPlain.date(from: s)
+        }
+
+        var bucket: [String: (count: Int, msgs: Int, earliest: Date?, latest: Date?)] = [:]
+
+        for dir in projectDirs {
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: dir.path, isDirectory: &isDir), isDir.boolValue else { continue }
+            let indexURL = dir.appendingPathComponent("sessions-index.json")
+            guard let data = try? Data(contentsOf: indexURL),
+                  let idx = try? JSONDecoder().decode(SessionsIndex.self, from: data)
+            else { continue }
+
+            for entry in idx.entries {
+                guard !fm.fileExists(atPath: entry.fullPath) else { continue }
+                // projectPath in the index is the original cwd; resolve it to a git
+                // root so this groups under the same key as live JSONLs do.
+                guard let cwd = entry.projectPath else { continue }
+                let root = resolver.resolve(cwd)
+                let created = parseDate(entry.created)
+                let modified = parseDate(entry.modified)
+                var b = bucket[root] ?? (count: 0, msgs: 0, earliest: nil, latest: nil)
+                b.count += 1
+                b.msgs += entry.messageCount ?? 0
+                if let c = created { b.earliest = b.earliest.map { min($0, c) } ?? c }
+                if let m = modified { b.latest = b.latest.map { max($0, m) } ?? m }
+                bucket[root] = b
+            }
+        }
+
+        return bucket.mapValues {
+            MissingClaudeData(
+                sessionCount: $0.count,
+                messageCount: $0.msgs,
+                earliest: $0.earliest,
+                latest: $0.latest
+            )
+        }
     }
 
     private func parseFile(at url: URL) -> [SessionEvent] {

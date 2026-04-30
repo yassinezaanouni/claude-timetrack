@@ -8,6 +8,14 @@ struct MainView: View {
         VStack(spacing: 0) {
             HeaderView()
 
+            ActivityCalendar(
+                dailyTotals: state.combinedDailyTotals(),
+                selectedDate: $state.selectedDate,
+                title: "ACTIVITY"
+            )
+            .padding(.horizontal, 14)
+            .padding(.bottom, 10)
+
             Divider().opacity(0.5)
 
             SearchBar(text: $state.searchQuery)

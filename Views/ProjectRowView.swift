@@ -9,7 +9,8 @@ struct ProjectRowView: View {
 
     var body: some View {
         let activeSource = state.trackingSource
-        let activeSeconds = project.seconds(for: state.selectedRange, source: activeSource)
+        let day = state.selectedDate
+        let activeSeconds = state.displaySeconds(for: project)
         let proportion = total > 0 ? activeSeconds / total : 0
         let accent = Color.paletteColor(for: project.name)
         let lastActive = project.lastActive(source: activeSource)
@@ -26,11 +27,19 @@ struct ProjectRowView: View {
                     .frame(width: 7, height: 7)
 
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(project.name)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Theme.foreground)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+                    HStack(spacing: 5) {
+                        Text(project.name)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(Theme.foreground)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        if let missing = project.missingClaudeData {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(.orange)
+                                .help(missingHelp(missing))
+                        }
+                    }
                     if let last = lastActive {
                         Text(TimeFormat.relative(from: last))
                             .font(.system(size: 10))
@@ -45,7 +54,7 @@ struct ProjectRowView: View {
                         source: .claude,
                         active: activeSource == .claude,
                         available: claudeAvailable,
-                        seconds: project.seconds(for: state.selectedRange, source: .claude),
+                        seconds: project.displaySeconds(range: state.selectedRange, day: day, source: .claude),
                         size: .row,
                         onTap: { switchSource(to: .claude) }
                     )
@@ -58,7 +67,7 @@ struct ProjectRowView: View {
                         source: .git,
                         active: activeSource == .git,
                         available: gitAvailable,
-                        seconds: project.seconds(for: state.selectedRange, source: .git),
+                        seconds: project.displaySeconds(range: state.selectedRange, day: day, source: .git),
                         size: .row,
                         onTap: { switchSource(to: .git) }
                     )
@@ -140,6 +149,12 @@ struct ProjectRowView: View {
         withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) {
             state.trackingSource = source
         }
+    }
+
+    private func missingHelp(_ m: MissingClaudeData) -> String {
+        let s = "\(m.sessionCount) Claude session\(m.sessionCount == 1 ? "" : "s") missing from disk"
+        let msgs = m.messageCount > 0 ? " (~\(m.messageCount) messages)" : ""
+        return s + msgs + ". Tap for details."
     }
 }
 

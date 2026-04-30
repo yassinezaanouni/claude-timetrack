@@ -24,13 +24,12 @@ struct HeaderView: View {
                 }
 
                 Spacer()
-
-                TimeRangePicker()
             }
 
             HStack(spacing: 8) {
                 SourcePicker()
                 Spacer()
+                TimeRangePicker()
             }
 
             TotalBar()
@@ -55,7 +54,7 @@ private struct TotalBar: View {
 
     var body: some View {
         let projects = state.visibleProjects()
-        let total = state.totalSeconds(for: state.selectedRange)
+        let total = state.displayTotal()
 
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -69,9 +68,7 @@ private struct TotalBar: View {
                         .foregroundStyle(Theme.mutedForeground)
                         .monospacedDigit()
                 }
-                Text(state.selectedRange.label.lowercased())
-                    .font(.system(size: 12))
-                    .foregroundStyle(Theme.mutedForeground)
+                rangeOrDateLabel
                 Spacer()
                 if !projects.isEmpty {
                     Text("\(projects.count) project\(projects.count == 1 ? "" : "s")")
@@ -88,6 +85,45 @@ private struct TotalBar: View {
                 .frame(height: 8)
         }
     }
+
+    /// Switches between "today / this week / all time" and the drill-in date
+    /// label (with a tap-to-clear affordance) so the user always knows which
+    /// scope the big number reflects.
+    @ViewBuilder
+    private var rangeOrDateLabel: some View {
+        if let date = state.selectedDate {
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) { state.selectedDate = nil }
+            } label: {
+                HStack(spacing: 3) {
+                    Text(Self.dayFormatter.string(from: date))
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Theme.foreground)
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Theme.mutedForeground)
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(Theme.primary.opacity(0.12))
+                )
+            }
+            .buttonStyle(.plain)
+            .help("Clear date filter")
+        } else {
+            Text(state.selectedRange.label.lowercased())
+                .font(.system(size: 12))
+                .foregroundStyle(Theme.mutedForeground)
+        }
+    }
+
+    private static let dayFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "EEE, MMM d"
+        return f
+    }()
 }
 
 // MARK: - Stacked bar showing project breakdown
@@ -105,7 +141,7 @@ private struct StackedBar: View {
             } else {
                 HStack(spacing: 1.5) {
                     ForEach(projects) { p in
-                        let seconds = p.seconds(for: state.selectedRange, source: state.trackingSource)
+                        let seconds = state.displaySeconds(for: p)
                         if seconds > 0 {
                             Color.paletteColor(for: p.name)
                                 .frame(width: max(3, geo.size.width * CGFloat(seconds / total)))
@@ -125,30 +161,76 @@ struct TimeRangePicker: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            ForEach(TimeRange.allCases) { range in
-                Button {
-                    withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
-                        state.selectedRange = range
-                    }
-                } label: {
-                    Text(range.shortLabel)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(state.selectedRange == range
-                            ? Theme.primaryForeground
-                            : Theme.mutedForeground)
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 4)
-                        .background(
-                            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                .fill(state.selectedRange == range ? Theme.primary : Color.clear)
-                        )
-                }
-                .plainButton()
+            ForEach(TimeRange.primary) { range in
+                segmentButton(range)
             }
+            moreMenu
         }
         .padding(2)
         .background(Theme.muted)
         .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+    }
+
+    private func segmentButton(_ range: TimeRange) -> some View {
+        let active = state.selectedRange == range
+        return Button {
+            select(range)
+        } label: {
+            Text(range.shortLabel)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(active ? Theme.primaryForeground : Theme.mutedForeground)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 4)
+                .background(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(active ? Theme.primary : Color.clear)
+                )
+        }
+        .plainButton()
+    }
+
+    /// Holds the secondary ranges (yesterday / last week / this month /
+    /// last month). When one is active the chip lights up and shows the
+    /// short label so the user can see the scope at a glance; otherwise
+    /// it's a tight ellipsis icon to keep the row compact.
+    private var moreMenu: some View {
+        let active = !state.selectedRange.isPrimary
+        return Menu {
+            ForEach(TimeRange.secondary) { range in
+                Button(range.label) { select(range) }
+            }
+        } label: {
+            Group {
+                if active {
+                    HStack(spacing: 3) {
+                        Text(state.selectedRange.shortLabel)
+                            .font(.system(size: 11, weight: .medium))
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 8, weight: .bold))
+                    }
+                } else {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 11, weight: .bold))
+                }
+            }
+            .foregroundStyle(active ? Theme.primaryForeground : Theme.mutedForeground)
+            .padding(.horizontal, active ? 9 : 8)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(active ? Theme.primary : Color.clear)
+            )
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+    }
+
+    private func select(_ range: TimeRange) {
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+            state.selectedRange = range
+            state.selectedDate = nil    // picking a range exits day-drill
+        }
     }
 }
 

@@ -30,9 +30,13 @@ private struct MenuBarLabel: View {
 
     private var rangePrefix: String {
         switch appState.selectedRange {
-        case .today: return ""
-        case .week: return "W "
-        case .all: return "∑ "
+        case .today:     return ""
+        case .yesterday: return "Y "
+        case .week:      return "W "
+        case .lastWeek:  return "LW "
+        case .month:     return "M "
+        case .lastMonth: return "LM "
+        case .all:       return "∑ "
         }
     }
 }

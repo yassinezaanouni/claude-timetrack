@@ -43,6 +43,9 @@ final class AppState {
     var showSettings: Bool = false
     var selectedProjectRoot: String? = nil    // nil = list view; non-nil = detail view
     var searchQuery: String = ""
+    /// When non-nil, totals/sorts/stats display data for this exact day instead
+    /// of the active `selectedRange`. Set by tapping a cell in `ActivityCalendar`.
+    var selectedDate: Date? = nil
 
     /// Resolves the currently-selected project's latest data (or nil).
     func selectedProject() -> ProjectUsage? {
@@ -190,7 +193,8 @@ final class AppState {
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
-    /// Visible projects, filtered + search + hidden + sorted for the selected range.
+    /// Visible projects, filtered + search + hidden + sorted for the selected
+    /// range *or* the drill-in date when one is set.
     func visibleProjects() -> [ProjectUsage] {
         let q = searchQuery.trimmingCharacters(in: .whitespaces).lowercased()
         var out = projects.filter { !hiddenProjects.contains($0.root) }
@@ -198,14 +202,18 @@ final class AppState {
             out = out.filter { $0.name.lowercased().contains(q) || $0.root.lowercased().contains(q) }
         }
         out.sort { lhs, rhs in
-            let l = lhs.seconds(for: selectedRange, source: trackingSource)
-            let r = rhs.seconds(for: selectedRange, source: trackingSource)
+            let l = displaySeconds(for: lhs)
+            let r = displaySeconds(for: rhs)
             if l != r { return l > r }
             let la = lhs.lastActive(source: trackingSource) ?? .distantPast
             let ra = rhs.lastActive(source: trackingSource) ?? .distantPast
             return la > ra
         }
-        if hideInactive && selectedRange != .all {
+        // When a specific day is picked, hide projects with no activity that day
+        // regardless of the toggle — empty rows would just be noise.
+        if selectedDate != nil {
+            out = out.filter { displaySeconds(for: $0) > 0 }
+        } else if hideInactive && selectedRange != .all {
             out = out.filter { $0.seconds(for: selectedRange, source: trackingSource) > 0 }
         }
         return out
@@ -215,6 +223,43 @@ final class AppState {
         projects
             .filter { !hiddenProjects.contains($0.root) }
             .reduce(0) { $0 + $1.seconds(for: range, source: trackingSource) }
+    }
+
+    // MARK: - Date drill-in helpers
+
+    /// What every "main number" should show: per-day total when drilling in,
+    /// otherwise the active range.
+    func displaySeconds(for project: ProjectUsage) -> TimeInterval {
+        project.displaySeconds(range: selectedRange, day: selectedDate, source: trackingSource)
+    }
+
+    /// Sum of `displaySeconds` across non-hidden projects.
+    func displayTotal() -> TimeInterval {
+        projects
+            .filter { !hiddenProjects.contains($0.root) }
+            .reduce(0) { $0 + displaySeconds(for: $1) }
+    }
+
+    /// Aggregate daily totals across non-hidden projects for the active source.
+    /// Powers the main-screen activity calendar.
+    func combinedDailyTotals() -> [Date: TimeInterval] {
+        var out: [Date: TimeInterval] = [:]
+        for p in projects where !hiddenProjects.contains(p.root) {
+            for (day, secs) in p.dailyTotals(source: trackingSource) {
+                out[day, default: 0] += secs
+            }
+        }
+        return out
+    }
+
+    /// Tapping a calendar cell. Same date again = clear (toggle).
+    func toggleDate(_ date: Date) {
+        let day = Calendar.current.startOfDay(for: date)
+        if let cur = selectedDate, Calendar.current.isDate(cur, inSameDayAs: day) {
+            selectedDate = nil
+        } else {
+            selectedDate = day
+        }
     }
 
     // MARK: - Timer

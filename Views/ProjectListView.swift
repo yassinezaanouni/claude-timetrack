@@ -59,9 +59,13 @@ private struct EmptyStateView: View {
 
     private var emptyText: String {
         switch range {
-        case .today: return "No Claude Code activity today yet.\nOpen a session in any project to start tracking."
-        case .week: return "No activity this week."
-        case .all: return "No Claude Code sessions found."
+        case .today:     return "No Claude Code activity today yet.\nOpen a session in any project to start tracking."
+        case .yesterday: return "No activity yesterday."
+        case .week:      return "No activity this week."
+        case .lastWeek:  return "No activity last week."
+        case .month:     return "No activity this month."
+        case .lastMonth: return "No activity last month."
+        case .all:       return "No Claude Code sessions found."
         }
     }
 }

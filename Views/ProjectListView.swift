@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ProjectListView: View {
     @Environment(AppState.self) private var state
+    var onScrollChange: ((CGFloat) -> Void)? = nil
 
     var body: some View {
         let projects = state.visibleProjects()
@@ -30,6 +31,11 @@ struct ProjectListView: View {
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
+                    .background(
+                        ScrollOffsetReader { y in
+                            onScrollChange?(max(0, y))
+                        }
+                    )
                 }
             }
         }

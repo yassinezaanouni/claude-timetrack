@@ -2,9 +2,17 @@ import SwiftUI
 
 struct MainView: View {
     @Environment(AppState.self) private var state
+    @State private var scrollOffset: CGFloat = 0
+    @State private var isActivityCollapsed = false
+
+    /// Scroll past this to auto-collapse. Hysteresis below prevents jitter
+    /// near the threshold.
+    private let collapseThreshold: CGFloat = 30
+    private let expandThreshold: CGFloat = 4
 
     var body: some View {
         @Bindable var state = state
+
         VStack(spacing: 0) {
             HeaderView()
 
@@ -14,7 +22,11 @@ struct MainView: View {
                 title: "ACTIVITY"
             )
             .padding(.horizontal, 14)
-            .padding(.bottom, 10)
+            .padding(.bottom, isActivityCollapsed ? 0 : 10)
+            .frame(height: isActivityCollapsed ? 0 : nil, alignment: .top)
+            .opacity(isActivityCollapsed ? 0 : 1)
+            .clipped()
+            .allowsHitTesting(!isActivityCollapsed)
 
             Divider().opacity(0.5)
 
@@ -23,12 +35,22 @@ struct MainView: View {
                 .padding(.top, 10)
                 .padding(.bottom, 8)
 
-            ProjectListView()
+            ProjectListView { newOffset in
+                scrollOffset = newOffset
+            }
 
             Divider().opacity(0.5)
 
             FooterView()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .animation(.easeOut(duration: 0.22), value: isActivityCollapsed)
+        .onChange(of: scrollOffset) { _, newValue in
+            if !isActivityCollapsed, newValue > collapseThreshold {
+                isActivityCollapsed = true
+            } else if isActivityCollapsed, newValue < expandThreshold {
+                isActivityCollapsed = false
+            }
+        }
     }
 }

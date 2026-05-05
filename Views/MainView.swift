@@ -52,5 +52,12 @@ struct MainView: View {
                 isActivityCollapsed = false
             }
         }
+        // Reset collapsed state when the filter changes — the new project list
+        // may be short enough that it can't be scrolled, leaving the user with
+        // no way to expand the chart back.
+        .onChange(of: state.selectedRange) { _, _ in isActivityCollapsed = false }
+        .onChange(of: state.searchQuery) { _, _ in isActivityCollapsed = false }
+        .onChange(of: state.selectedDate) { _, _ in isActivityCollapsed = false }
+        .onChange(of: state.trackingSource) { _, _ in isActivityCollapsed = false }
     }
 }

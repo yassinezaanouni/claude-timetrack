@@ -1,16 +1,26 @@
 import SwiftUI
 import AppKit
 
+/// Snapshot of an NSScrollView's geometry at one instant.
+struct ScrollMetrics: Equatable {
+    var offset: CGFloat
+    var contentHeight: CGFloat
+    var viewportHeight: CGFloat
+}
+
 /// Observes the enclosing NSScrollView's clip-view bounds and forwards
-/// the vertical scroll offset to SwiftUI. SwiftUI ScrollView on macOS is
-/// backed by NSScrollView, but PreferenceKey/GeometryReader-based scroll
-/// tracking is flaky inside LazyVStack — going through AppKit avoids that.
+/// the vertical scroll offset + content/viewport heights to SwiftUI.
+/// SwiftUI ScrollView on macOS is backed by NSScrollView, but
+/// PreferenceKey/GeometryReader-based scroll tracking is flaky inside
+/// LazyVStack — going through AppKit avoids that.
 struct ScrollOffsetReader: NSViewRepresentable {
-    let onChange: (CGFloat) -> Void
+    let onChange: (ScrollMetrics) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(onChange: onChange)
     }
+
+    typealias Callback = (ScrollMetrics) -> Void
 
     func makeNSView(context: Context) -> NSView {
         let view = TrackingView()
@@ -24,10 +34,10 @@ struct ScrollOffsetReader: NSViewRepresentable {
     }
 
     final class Coordinator: NSObject {
-        var onChange: (CGFloat) -> Void
+        var onChange: Callback
         weak var observedClip: NSClipView?
 
-        init(onChange: @escaping (CGFloat) -> Void) {
+        init(onChange: @escaping Callback) {
             self.onChange = onChange
         }
 
@@ -43,7 +53,15 @@ struct ScrollOffsetReader: NSViewRepresentable {
 
         @objc func boundsDidChange(_ note: Notification) {
             guard let clip = note.object as? NSClipView else { return }
-            onChange(clip.bounds.origin.y)
+            emit(from: clip)
+        }
+
+        func emit(from clip: NSClipView) {
+            onChange(ScrollMetrics(
+                offset: clip.bounds.origin.y,
+                contentHeight: clip.documentView?.frame.size.height ?? 0,
+                viewportHeight: clip.bounds.size.height
+            ))
         }
     }
 
@@ -86,7 +104,7 @@ struct ScrollOffsetReader: NSViewRepresentable {
                 object: clip
             )
             // Emit initial value.
-            coordinator.onChange(clip.bounds.origin.y)
+            coordinator.emit(from: clip)
         }
     }
 }

@@ -162,6 +162,10 @@ final class AppState {
     // MARK: - Actions
 
     func refresh() {
+        // Guard against overlapping refreshes — `GitHistoryAnalyzer` keeps a
+        // non-thread-safe cache and concurrent `analyze()` calls have crashed
+        // with `_NativeDictionary._copyOrMoveAndResize` aborts.
+        guard !isRefreshing else { return }
         isRefreshing = true
         let gap = TimeInterval(max(1, idleGapMinutes) * 60)
         let gitConfig = GitHistoryAnalyzer.Config(

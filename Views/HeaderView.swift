@@ -53,8 +53,10 @@ private struct TotalBar: View {
     @Environment(AppState.self) private var state
 
     var body: some View {
+        @Bindable var bindable = state
         let projects = state.visibleProjects()
         let total = state.displayTotal()
+        let canMerge = state.trackingSource == .claude
 
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -70,6 +72,16 @@ private struct TotalBar: View {
                 }
                 rangeOrDateLabel
                 Spacer()
+                if canMerge {
+                    Toggle(isOn: $bindable.mergeOverlaps) {
+                        Text("Merge")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(state.mergeOverlaps ? Theme.foreground : Theme.mutedForeground)
+                    }
+                    .toggleStyle(.switch)
+                    .controlSize(.mini)
+                    .help("Merge overlapping sessions across projects so concurrent work isn't double-counted in the total. The list groups concurrent windows together; non-overlapping time appears under \u{201C}Solo\u{201D}.")
+                }
                 if !projects.isEmpty {
                     Text("\(projects.count) project\(projects.count == 1 ? "" : "s")")
                         .font(.system(size: 11, weight: .medium))
@@ -81,8 +93,14 @@ private struct TotalBar: View {
                 }
             }
 
-            StackedBar(projects: projects, total: total)
-                .frame(height: 8)
+            Group {
+                if state.mergeOverlaps && canMerge {
+                    TimelineBar(sessions: state.visibleSessions(), bound: state.effectiveBound())
+                } else {
+                    StackedBar(projects: projects, total: total)
+                }
+            }
+            .frame(height: 8)
         }
     }
 
@@ -124,6 +142,38 @@ private struct TotalBar: View {
         f.dateFormat = "EEE, MMM d"
         return f
     }()
+}
+
+// MARK: - Timeline bar (overlap-aware)
+
+/// Renders each session as a translucent colored rect at its actual time
+/// position within the active range. Where two projects overlap, the alpha
+/// blend produces a darker, layered region — overlap is shown "in the same
+/// place" rather than double-counted side-by-side.
+private struct TimelineBar: View {
+    let sessions: [AppState.VisibleSession]
+    let bound: DateInterval?
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 4).fill(Theme.muted)
+
+                if let bound, bound.duration > 0 {
+                    let span = bound.duration
+                    ForEach(sessions) { s in
+                        let xStart = (s.start.timeIntervalSince(bound.start) / span) * geo.size.width
+                        let width = max(2, (s.end.timeIntervalSince(s.start) / span) * geo.size.width)
+                        Color.paletteColor(for: s.projectName)
+                            .opacity(0.55)
+                            .frame(width: width)
+                            .offset(x: xStart)
+                    }
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+        }
+    }
 }
 
 // MARK: - Stacked bar showing project breakdown

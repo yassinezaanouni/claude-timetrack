@@ -59,5 +59,6 @@ struct MainView: View {
         .onChange(of: state.searchQuery) { _, _ in isActivityCollapsed = false }
         .onChange(of: state.selectedDate) { _, _ in isActivityCollapsed = false }
         .onChange(of: state.trackingSource) { _, _ in isActivityCollapsed = false }
+        .onChange(of: state.mergeOverlaps) { _, _ in isActivityCollapsed = false }
     }
 }

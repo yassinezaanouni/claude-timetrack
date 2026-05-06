@@ -114,6 +114,13 @@ final class AppState {
         }
     }
 
+    /// When true, the grand total + bar account for overlapping sessions
+    /// across projects (concurrent work counted once instead of per-project).
+    /// Per-project numbers and the heatmap stay unchanged.
+    var mergeOverlaps: Bool = UserDefaults.standard.bool(forKey: Keys.mergeOverlaps, default: false) {
+        didSet { UserDefaults.standard.set(mergeOverlaps, forKey: Keys.mergeOverlaps) }
+    }
+
     var launchAtLogin: Bool = SMAppService.mainApp.status == .enabled {
         didSet {
             do {
@@ -233,11 +240,277 @@ final class AppState {
         project.displaySeconds(range: selectedRange, day: selectedDate, source: trackingSource)
     }
 
-    /// Sum of `displaySeconds` across non-hidden projects.
+    /// Sum of `displaySeconds` across non-hidden projects. When
+    /// `mergeOverlaps` is on, returns the de-duplicated wall-clock active
+    /// time instead so concurrent work isn't counted twice.
     func displayTotal() -> TimeInterval {
-        projects
+        if mergeOverlaps, trackingSource == .claude {
+            return dedupedActiveSeconds()
+        }
+        return projects
             .filter { !hiddenProjects.contains($0.root) }
             .reduce(0) { $0 + displaySeconds(for: $1) }
+    }
+
+    // MARK: - Overlap-aware totals
+
+    /// One session, clipped to the active scope, for timeline rendering.
+    struct VisibleSession: Identifiable, Hashable {
+        let id: String
+        let projectRoot: String
+        let projectName: String
+        let start: Date
+        let end: Date
+        /// `activeSeconds / sessionSpan` of the *original* (unclipped) session.
+        let rate: Double
+    }
+
+    /// The `[start, end)` window the active range covers. For `.all`, derives
+    /// from the earliest/latest session timestamps so the timeline has bounds
+    /// to plot against.
+    func effectiveBound() -> DateInterval? {
+        if let day = selectedDate {
+            let next = Calendar.current.date(byAdding: .day, value: 1, to: day) ?? day
+            return DateInterval(start: day, end: next)
+        }
+        if let interval = selectedRange.interval() { return interval }
+
+        var earliest: Date?
+        var latest: Date?
+        for p in projects where !hiddenProjects.contains(p.root) {
+            for s in p.sessions {
+                if earliest == nil || s.start < earliest! { earliest = s.start }
+                if latest == nil || s.end > latest! { latest = s.end }
+            }
+        }
+        guard let e = earliest, let l = latest, l > e else { return nil }
+        return DateInterval(start: e, end: l)
+    }
+
+    /// All Claude sessions across visible projects, clipped to the active
+    /// range/day. Returned in arbitrary order. Used by the timeline bar and
+    /// the dedup sweep.
+    func visibleSessions() -> [VisibleSession] {
+        // Clip to the *range* bound, not the synthetic `.all` bound — clipping
+        // to the data's own min/max would just be a no-op and waste work.
+        let clipBound: DateInterval? = {
+            if let day = selectedDate {
+                let next = Calendar.current.date(byAdding: .day, value: 1, to: day) ?? day
+                return DateInterval(start: day, end: next)
+            }
+            return selectedRange.interval()
+        }()
+
+        var out: [VisibleSession] = []
+        var counter = 0
+        for project in projects where !hiddenProjects.contains(project.root) {
+            for s in project.sessions {
+                let originalSpan = s.end.timeIntervalSince(s.start)
+                guard originalSpan > 0 else { continue }
+                let rate = min(1, s.activeSeconds / originalSpan)
+
+                var start = s.start
+                var end = s.end
+                if let b = clipBound {
+                    if end <= b.start || start >= b.end { continue }
+                    start = max(start, b.start)
+                    end = min(end, b.end)
+                }
+                guard end > start else { continue }
+
+                out.append(VisibleSession(
+                    id: "\(s.id)#\(counter)",
+                    projectRoot: project.root,
+                    projectName: project.name,
+                    start: start,
+                    end: end,
+                    rate: rate
+                ))
+                counter += 1
+            }
+        }
+        return out
+    }
+
+    /// One window of concurrent multi-project work, plus each contributor's
+    /// share within it.
+    struct OverlapWindow: Identifiable, Hashable {
+        let id: String
+        let start: Date
+        let end: Date
+        let entries: [Entry]
+
+        var duration: TimeInterval { end.timeIntervalSince(start) }
+
+        struct Entry: Identifiable, Hashable {
+            let id: String
+            let projectRoot: String
+            let projectName: String
+            /// Active seconds this project contributed during this window
+            /// (rate-weighted, dedup-capped — see `overlapBreakdown`).
+            let activeSeconds: TimeInterval
+        }
+    }
+
+    /// One project's non-overlapping (solo) active time within scope.
+    struct SoloEntry: Identifiable, Hashable {
+        let id: String
+        let projectRoot: String
+        let projectName: String
+        let activeSeconds: TimeInterval
+    }
+
+    struct OverlapBreakdown {
+        let windows: [OverlapWindow]    // chronological, newest last
+        let solo: [SoloEntry]           // descending activeSeconds
+    }
+
+    /// Walks the visible sessions chronologically and splits them into:
+    ///   - **overlap windows**: contiguous intervals where ≥2 projects were
+    ///     concurrently active. Each window lists every contributor's share
+    ///     of that window's wall-clock time.
+    ///   - **solo entries**: per-project totals of time during which only
+    ///     that project was active.
+    ///
+    /// Within each segment the combined activity rate is capped at 1 so
+    /// concurrent work isn't counted past wall-clock; each contributor gets
+    /// `(rate / totalRate) * cap * dt` of credit.
+    func overlapBreakdown() -> OverlapBreakdown {
+        let sessions = visibleSessions()
+        guard !sessions.isEmpty else { return OverlapBreakdown(windows: [], solo: []) }
+
+        struct Event {
+            let time: Date
+            let projectRoot: String
+            let projectName: String
+            let delta: Double
+        }
+
+        var events: [Event] = []
+        events.reserveCapacity(sessions.count * 2)
+        for s in sessions {
+            events.append(Event(time: s.start, projectRoot: s.projectRoot, projectName: s.projectName, delta: s.rate))
+            events.append(Event(time: s.end, projectRoot: s.projectRoot, projectName: s.projectName, delta: -s.rate))
+        }
+        events.sort { $0.time < $1.time }
+
+        var rates: [String: Double] = [:]
+        var names: [String: String] = [:]
+
+        struct WindowBuilder {
+            var start: Date
+            var end: Date
+            var contribs: [String: TimeInterval] = [:]
+        }
+
+        var soloByProject: [String: TimeInterval] = [:]
+        var builders: [WindowBuilder] = []
+
+        var i = 0
+        var lastTime: Date? = nil
+        while i < events.count {
+            let t = events[i].time
+
+            if let prev = lastTime {
+                let dt = t.timeIntervalSince(prev)
+                if dt > 0 {
+                    let active = rates.filter { $0.value > 0 }
+                    let totalRate = active.values.reduce(0, +)
+                    let cap = min(1, totalRate)
+
+                    if active.count == 1, let only = active.first {
+                        soloByProject[only.key, default: 0] += cap * dt
+                    } else if active.count >= 2 && totalRate > 0 {
+                        // Extend the prior window if it ended exactly here, else start new.
+                        if !builders.isEmpty, builders[builders.count - 1].end == prev {
+                            builders[builders.count - 1].end = t
+                            for (root, rate) in active {
+                                builders[builders.count - 1].contribs[root, default: 0] += (rate / totalRate) * cap * dt
+                            }
+                        } else {
+                            var b = WindowBuilder(start: prev, end: t)
+                            for (root, rate) in active {
+                                b.contribs[root, default: 0] += (rate / totalRate) * cap * dt
+                            }
+                            builders.append(b)
+                        }
+                    }
+                }
+            }
+
+            while i < events.count, events[i].time == t {
+                let e = events[i]
+                rates[e.projectRoot, default: 0] += e.delta
+                if e.delta > 0 { names[e.projectRoot] = e.projectName }
+                i += 1
+            }
+            lastTime = t
+        }
+
+        let windows: [OverlapWindow] = builders.enumerated().map { idx, b in
+            let entries = b.contribs.map { root, secs in
+                OverlapWindow.Entry(
+                    id: "w\(idx)-\(root)",
+                    projectRoot: root,
+                    projectName: names[root] ?? root,
+                    activeSeconds: secs
+                )
+            }.sorted { $0.activeSeconds > $1.activeSeconds }
+
+            return OverlapWindow(
+                id: "window-\(idx)",
+                start: b.start,
+                end: b.end,
+                entries: entries
+            )
+        }
+
+        let solo: [SoloEntry] = soloByProject.map { root, secs in
+            SoloEntry(
+                id: root,
+                projectRoot: root,
+                projectName: names[root] ?? root,
+                activeSeconds: secs
+            )
+        }
+        .filter { $0.activeSeconds > 0 }
+        .sorted { $0.activeSeconds > $1.activeSeconds }
+
+        return OverlapBreakdown(windows: windows, solo: solo)
+    }
+
+    /// De-duplicated active time across all visible sessions. Each session
+    /// contributes activity at rate `activeSeconds / sessionSpan` over its
+    /// `[start, end]`. At any instant the combined rate is capped at 1 so
+    /// concurrent work doesn't push the total past wall-clock time.
+    func dedupedActiveSeconds() -> TimeInterval {
+        let sessions = visibleSessions()
+        guard !sessions.isEmpty else { return 0 }
+
+        struct Event { let time: Date; let delta: Double }
+        var events: [Event] = []
+        events.reserveCapacity(sessions.count * 2)
+        for s in sessions {
+            events.append(Event(time: s.start, delta: s.rate))
+            events.append(Event(time: s.end, delta: -s.rate))
+        }
+        events.sort { $0.time < $1.time }
+
+        var total: TimeInterval = 0
+        var rate: Double = 0
+        var i = 0
+        while i < events.count {
+            let t = events[i].time
+            while i < events.count, events[i].time == t {
+                rate += events[i].delta
+                i += 1
+            }
+            if i < events.count {
+                let dt = events[i].time.timeIntervalSince(t)
+                total += min(1, rate) * dt
+            }
+        }
+        return total
     }
 
     /// Aggregate daily totals across non-hidden projects for the active source.
@@ -305,6 +578,7 @@ final class AppState {
         static let gitGap = "claudetimetrack.gitMaxGapMinutes"
         static let gitFirst = "claudetimetrack.gitFirstCommitMinutes"
         static let gitFilter = "claudetimetrack.gitFilterByEmail"
+        static let mergeOverlaps = "claudetimetrack.mergeOverlaps"
     }
 }
 

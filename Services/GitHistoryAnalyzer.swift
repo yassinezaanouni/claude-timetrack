@@ -17,42 +17,89 @@ final class GitHistoryAnalyzer {
     }
 
     private struct CacheEntry {
-        let head: String
+        let headMtime: TimeInterval     // mtime of `.git/HEAD` for fast-path
+        let head: String                // SHA — secondary key for worktrees
         let email: String?
-        let dates: [Date]   // sorted ascending
+        let dates: [Date]               // sorted ascending
     }
 
+    /// Concurrent reads/writes are now expected — `AppState.refresh()` runs
+    /// `analyze()` in parallel across projects. The lock is held only for
+    /// dictionary access; the git invocations happen outside it.
     private var cache: [String: CacheEntry] = [:]
+    private let cacheLock = NSLock()
 
-    /// User's configured email — read once from `git config --global user.email`.
-    private lazy var configuredEmail: String? = {
-        Self.runGit(args: ["config", "--global", "user.email"], cwd: nil)?
+    /// Resolved once at init so parallel `analyze()` calls don't race the
+    /// underlying `git config` invocation. Cheap (single short-lived process).
+    private let configuredEmail: String?
+
+    init() {
+        self.configuredEmail = Self.runGit(args: ["config", "--global", "user.email"], cwd: nil)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .nonEmpty
-    }()
+    }
 
     /// Returns nil for non-git roots or when `git` is unavailable.
     func analyze(root: String, config: Config, now: Date = Date()) -> GitStats? {
+        let email = config.filterByEmail ? configuredEmail : nil
+        let headMtime = Self.headMtime(for: root)
+
+        // Fast path: HEAD's mtime is unchanged since we last cached this
+        // project — skip every git invocation and reuse the parsed dates.
+        if let mtime = headMtime,
+           let cached = cacheLock.withLock({ cache[root] }),
+           cached.headMtime == mtime,
+           cached.email == email {
+            return computeStats(commits: cached.dates, config: config, now: now)
+        }
+
+        // Verify via HEAD SHA. Covers worktrees (where `.git` is a file
+        // pointing to the linked git dir, so `.git/HEAD` doesn't exist) and
+        // any case where mtime missed the cache for a non-content reason.
         guard let head = Self.runGit(args: ["rev-parse", "HEAD"], cwd: root)?
                 .trimmingCharacters(in: .whitespacesAndNewlines),
               !head.isEmpty
         else { return nil }
 
-        let email = config.filterByEmail ? configuredEmail : nil
-
-        let dates: [Date]
-        if let entry = cache[root], entry.head == head, entry.email == email {
-            dates = entry.dates
-        } else {
-            var args = ["log", "--no-merges", "--pretty=format:%aI"]
-            if let email { args.append("--author=\(email)") }
-            guard let output = Self.runGit(args: args, cwd: root) else { return nil }
-            let parsed = Self.parseDates(output).sorted()
-            cache[root] = CacheEntry(head: head, email: email, dates: parsed)
-            dates = parsed
+        let cachedBySha = cacheLock.withLock { cache[root] }
+        if let cachedBySha, cachedBySha.head == head, cachedBySha.email == email {
+            // SHA matches — refresh stored mtime so next refresh hits the
+            // cheap path even if mtime previously skipped (e.g. worktree).
+            if let mtime = headMtime, mtime != cachedBySha.headMtime {
+                let refreshed = CacheEntry(
+                    headMtime: mtime,
+                    head: head,
+                    email: email,
+                    dates: cachedBySha.dates
+                )
+                cacheLock.withLock { cache[root] = refreshed }
+            }
+            return computeStats(commits: cachedBySha.dates, config: config, now: now)
         }
 
+        // Full miss — run `git log`.
+        var args = ["log", "--no-merges", "--pretty=format:%aI"]
+        if let email { args.append("--author=\(email)") }
+        guard let output = Self.runGit(args: args, cwd: root) else { return nil }
+        let dates = Self.parseDates(output).sorted()
+
+        let entry = CacheEntry(
+            headMtime: headMtime ?? 0,
+            head: head,
+            email: email,
+            dates: dates
+        )
+        cacheLock.withLock { cache[root] = entry }
+
         return computeStats(commits: dates, config: config, now: now)
+    }
+
+    private static func headMtime(for root: String) -> TimeInterval? {
+        let path = "\(root)/.git/HEAD"
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+              let date = attrs[.modificationDate] as? Date
+        else { return nil }
+        return date.timeIntervalSince1970
     }
 
     // MARK: - Algorithm

@@ -14,7 +14,9 @@ struct OverlapBreakdownView: View {
         if breakdown.windows.isEmpty && breakdown.solo.isEmpty {
             EmptyOverlapState()
         } else {
-            VStack(spacing: 10) {
+            // Lazy: cards/rows below the fold are only realized as the user
+            // scrolls past them.
+            LazyVStack(spacing: 10) {
                 if !breakdown.windows.isEmpty {
                     sectionLabel("OVERLAPS", count: breakdown.windows.count)
                     ForEach(Array(breakdown.windows.enumerated()), id: \.1.id) { idx, window in
@@ -25,10 +27,9 @@ struct OverlapBreakdownView: View {
                 if !breakdown.solo.isEmpty {
                     sectionLabel("SOLO", count: breakdown.solo.count)
                         .padding(.top, breakdown.windows.isEmpty ? 0 : 4)
-                    VStack(spacing: 2) {
-                        ForEach(breakdown.solo) { entry in
-                            SoloProjectRow(entry: entry, max: breakdown.solo.first?.activeSeconds ?? 1)
-                        }
+                    let peak = breakdown.solo.first?.activeSeconds ?? 1
+                    ForEach(breakdown.solo) { entry in
+                        SoloProjectRow(entry: entry, peak: peak)
                     }
                 }
             }
@@ -60,9 +61,19 @@ struct OverlapBreakdownView: View {
 // MARK: - Overlap window card
 
 private struct OverlapWindowCard: View {
-    @Environment(AppState.self) private var state
     let index: Int
     let window: AppState.OverlapWindow
+
+    private static let timeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm"
+        return f
+    }()
+    private static let dayFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MMM d"
+        return f
+    }()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -127,8 +138,8 @@ private struct OverlapWindowCard: View {
     private var timeRangeLabel: String {
         let cal = Calendar.current
         let sameDay = cal.isDate(window.start, inSameDayAs: window.end)
-        let timeFmt = DateFormatter(); timeFmt.dateFormat = "HH:mm"
-        let dayFmt  = DateFormatter(); dayFmt.dateFormat  = "MMM d"
+        let timeFmt = Self.timeFormatter
+        let dayFmt  = Self.dayFormatter
 
         if sameDay {
             // If the window is from today we drop the date entirely.
@@ -215,12 +226,14 @@ private struct OverlapEntryRow: View {
 private struct SoloProjectRow: View {
     @Environment(AppState.self) private var state
     let entry: AppState.SoloEntry
-    let max: TimeInterval
+    /// Largest solo activeSeconds in the visible set — used as the
+    /// proportional bar's denominator so the longest entry fills the row.
+    let peak: TimeInterval
     @State private var hovering = false
 
     var body: some View {
         let accent = Color.paletteColor(for: entry.projectName)
-        let proportion = max > 0 ? entry.activeSeconds / max : 0
+        let proportion = peak > 0 ? entry.activeSeconds / peak : 0
 
         Button {
             state.selectedProjectRoot = entry.projectRoot
@@ -251,7 +264,7 @@ private struct SoloProjectRow: View {
                             .fill(Theme.muted)
                         RoundedRectangle(cornerRadius: 2)
                             .fill(accent)
-                            .frame(width: Swift.max(2, geo.size.width * CGFloat(proportion)))
+                            .frame(width: max(2, geo.size.width * CGFloat(proportion)))
                     }
                 }
                 .frame(height: 4)

@@ -177,12 +177,24 @@ final class AppState {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
             var result = self.tracker.compute(idleGapSeconds: gap)
-            // Enrich each project with its git-hours estimate.
-            for i in 0..<result.count {
-                result[i].gitStats = self.gitAnalyzer.analyze(
-                    root: result[i].root, config: gitConfig
-                )
+
+            // Enrich each project with its git-hours estimate. Each call is
+            // an independent set of process spawns, so run them in parallel
+            // — wall-clock latency drops from O(N · git-launch) to O(1).
+            let count = result.count
+            if count > 0 {
+                let analyzer = self.gitAnalyzer
+                let roots = result.map { $0.root }
+                let resultsLock = NSLock()
+                var stats: [String: GitStats] = [:]
+                DispatchQueue.concurrentPerform(iterations: count) { i in
+                    if let s = analyzer.analyze(root: roots[i], config: gitConfig) {
+                        resultsLock.withLock { stats[roots[i]] = s }
+                    }
+                }
+                for i in 0..<count { result[i].gitStats = stats[result[i].root] }
             }
+
             DispatchQueue.main.async {
                 self.projects = result
                 self.lastRefreshedAt = Date()

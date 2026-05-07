@@ -9,11 +9,14 @@ A macOS menu bar app that shows how much time you've spent in each project — t
 ## Features
 
 - **Two data sources, side by side** — every row shows both Claude session time and `git-hours` commit time. Tap either to flip the active view.
-- **Three ranges** — Today / Week / All time, with the live total in the menu bar.
+- **Time ranges** — Today / Yesterday / This week / Last week / This month / Last month / All time, with the live total in the menu bar.
 - **Activity heatmap** — GitHub-style 26-week calendar on the main popover (aggregated) and per project. Click any day to drill in: totals, sorting, and the session list scope to that day.
-- **Stacked breakdown bar** of project shares.
+- **Merge overlaps** — toggle on the total bar that de-duplicates concurrent work so two projects running at the same time don't double-count toward your total. The list reorganizes into "Overlap N" cards (each contributor's share of the window) plus a "Solo" section for non-overlapping time, and the breakdown bar switches to a timeline view where overlap regions visibly layer.
+- **Project search** — filter the list by project name.
+- **Stacked breakdown bar** of project shares (or a timeline bar in merge mode).
 - **Project detail view** — Today / Week / All-time stats for both sources, sessions / messages / last-active, activity heatmap, and the last 20 sittings (Claude) or commit summary (Git).
 - **Missing-data indicator** — if Claude Code has pruned old session JSONLs but the index still references them, the project shows a ⚠️ and a banner explaining what's gone.
+- **Compact while you scroll** — the activity heatmap auto-collapses when you scroll the project list so more rows fit, and re-expands when you scroll back up or pull past the top.
 - **Appearance** — System / Light / Dark.
 - **Hands-off** — auto-refresh every minute, launch-at-login, hide projects you don't care about.
 

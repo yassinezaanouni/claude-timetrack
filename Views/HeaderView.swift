@@ -77,9 +77,12 @@ private struct TotalBar: View {
                         Text("Merge")
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(state.mergeOverlaps ? Theme.foreground : Theme.mutedForeground)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
                     }
                     .toggleStyle(.switch)
                     .controlSize(.mini)
+                    .fixedSize()
                     .help("Merge overlapping sessions across projects so concurrent work isn't double-counted in the total. The list groups concurrent windows together; non-overlapping time appears under \u{201C}Solo\u{201D}.")
                 }
                 if !projects.isEmpty {

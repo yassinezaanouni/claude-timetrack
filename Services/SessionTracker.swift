@@ -114,13 +114,35 @@ final class SessionTracker {
 
             for s in projSessions {
                 total += s.activeSeconds
-                if s.end >= startOfToday { today += s.activeSeconds }
-                if s.end >= startOfWeek { week += s.activeSeconds }
 
-                // Bucket each session into the local day of its END timestamp.
-                // (Simple and good enough for a 14-day sparkline.)
-                let day = calendar.startOfDay(for: s.end)
-                daily[day, default: 0] += s.activeSeconds
+                // Distribute active time uniformly over the session's wall-clock
+                // span so a sitting that crosses midnight (or the week boundary)
+                // doesn't dump the whole duration into the end day. Without this,
+                // a 2-hour session straddling Sun→Mon would attribute the full
+                // 2h to "this week" the moment it crossed midnight.
+                let span = s.end.timeIntervalSince(s.start)
+                let rate = span > 0 ? min(1, s.activeSeconds / span) : 0
+
+                if span <= 0 {
+                    // Degenerate single-message sitting; activeSeconds is 0 too.
+                    if lastActive == nil || s.end > lastActive! { lastActive = s.end }
+                    continue
+                }
+
+                var dayStart = calendar.startOfDay(for: s.start)
+                while dayStart < s.end {
+                    let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart
+                    let clipStart = max(s.start, dayStart)
+                    let clipEnd = min(s.end, dayEnd)
+                    let dt = clipEnd.timeIntervalSince(clipStart)
+                    if dt > 0 {
+                        let portion = rate * dt
+                        daily[dayStart, default: 0] += portion
+                        if dayStart >= startOfToday { today += portion }
+                        if dayStart >= startOfWeek { week += portion }
+                    }
+                    dayStart = dayEnd
+                }
 
                 if lastActive == nil || s.end > lastActive! {
                     lastActive = s.end
